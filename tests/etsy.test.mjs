@@ -12,6 +12,7 @@ import {
 } from "../lib/etsy.js";
 import { etsyDraftParameters, normalizeEtsyListing } from "../lib/etsy-listing.js";
 import { getPublicOrigin } from "../lib/public-url.js";
+import nextConfig from "../next.config.mjs";
 
 const ORIGINAL_ENV = {
   ETSY_API_KEY: process.env.ETSY_API_KEY,
@@ -153,4 +154,8 @@ test("listing normalization matches Etsy title, tag, and draft requirements", { 
     /only once/,
   );
   assert.deepEqual(missingEtsyScopes("listings_r shops_r"), ["listings_w"]);
+});
+
+test("Next middleware accepts the full supported Etsy multipart upload", () => {
+  assert.equal(nextConfig.experimental?.middlewareClientMaxBodySize, "220mb");
 });

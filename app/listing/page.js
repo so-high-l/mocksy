@@ -27,9 +27,14 @@ import {
   getWorkflowAsset,
   loadListingWorkflow,
 } from "../../lib/listing-workflow";
-import { MAX_ETSY_LISTING_IMAGES } from "../../lib/etsy-listing";
+import {
+  MAX_ETSY_IMAGE_BYTES,
+  MAX_ETSY_LISTING_IMAGES,
+  MAX_ETSY_TOTAL_IMAGE_BYTES,
+} from "../../lib/etsy-listing";
 
 const MANUAL_IMAGE_TYPES = new Set(["image/jpeg", "image/png", "image/webp"]);
+const ETSY_DRAFTS_URL = "https://www.etsy.com/your/shops/me/tools/listings?status=draft";
 
 function formatBytes(bytes) {
   if (!bytes) return "0 KB";
@@ -63,7 +68,9 @@ export default function ListingReviewPage() {
   const [metadata, setMetadata] = useState(null);
   const [loading, setLoading] = useState(true);
   const [publishing, setPublishing] = useState(false);
+  const [publishingStage, setPublishingStage] = useState("");
   const [error, setError] = useState("");
+  const [recoveryUrl, setRecoveryUrl] = useState("");
   const [notice, setNotice] = useState("");
   const [draftResult, setDraftResult] = useState(null);
 
@@ -178,6 +185,11 @@ export default function ListingReviewPage() {
       setError(`${invalid.name} is not a supported JPG, PNG, or WebP image.`);
       return;
     }
+    const oversized = files.find((file) => file.size > MAX_ETSY_IMAGE_BYTES);
+    if (oversized) {
+      setError(`${oversized.name} is larger than Etsy’s 20 MB image limit.`);
+      return;
+    }
     if (images.length + files.length > MAX_ETSY_LISTING_IMAGES) {
       setError(`Etsy allows up to ${MAX_ETSY_LISTING_IMAGES} listing photos.`);
       return;
@@ -204,11 +216,22 @@ export default function ListingReviewPage() {
     if (!workflow || publishing || draftResult) return;
     const selectedImages = images.filter((image) => image.selected);
     const tags = tagValues(tagsText);
+    const totalImageBytes = selectedImages.reduce((total, image) => total + Number(image.size || image.blob?.size || 0), 0);
     setError("");
+    setRecoveryUrl("");
     setNotice("");
 
     if (!selectedImages.length) {
       setError("Choose at least one listing photo.");
+      return;
+    }
+    const oversizedImage = selectedImages.find((image) => Number(image.size || image.blob?.size || 0) > MAX_ETSY_IMAGE_BYTES);
+    if (oversizedImage) {
+      setError(`${oversizedImage.name || "A selected image"} is larger than Etsy’s 20 MB image limit.`);
+      return;
+    }
+    if (totalImageBytes > MAX_ETSY_TOTAL_IMAGE_BYTES) {
+      setError("The selected photos exceed Mocksy’s 200 MB upload limit. Choose fewer or smaller photos.");
       return;
     }
     if (!title.trim()) {
@@ -234,6 +257,7 @@ export default function ListingReviewPage() {
     }
 
     setPublishing(true);
+    setPublishingStage("Preparing your reviewed listing and selected photos…");
     try {
       try {
         localStorage.setItem("mocksy-default-listing-price", price);
@@ -253,22 +277,58 @@ export default function ListingReviewPage() {
         formData.append("images", image.blob, image.name || `listing-image-${index + 1}.jpg`);
       });
 
+      setPublishingStage("Creating the Etsy draft and uploading photos… Keep this page open.");
       const response = await fetch("/api/etsy/drafts", { method: "POST", body: formData });
-      const data = await response.json().catch(() => ({}));
+      const responseText = await response.text();
+      let data = {};
+      try {
+        data = responseText ? JSON.parse(responseText) : {};
+      } catch {
+        data = {};
+      }
       if (!response.ok) {
         if (data.partial && data.listingId) {
           setDraftResult(data);
           completeListingWorkflow(workflow.id, data);
         }
-        throw new Error(data.error || "The Etsy draft could not be created.");
+        if (data.code === "ETSY_RECONNECT_REQUIRED" || response.status === 401) {
+          setEtsyStatus((current) => ({ ...current, connected: false }));
+        }
+        if (data.manageUrl || data.checkDraftsFirst) {
+          setRecoveryUrl(data.manageUrl || ETSY_DRAFTS_URL);
+        }
+        let message = data.error || data.message || "";
+        if (!message && response.status === 413) {
+          message = "The selected photos are too large for this server. Choose fewer or smaller photos.";
+        } else if (!message && response.status === 401) {
+          message = "Your Etsy connection expired. Reconnect Etsy in Settings, then return to Final Review.";
+        } else if (!message && response.status >= 500) {
+          message = "The server did not confirm the result. Check Etsy drafts before trying again.";
+        } else if (!message) {
+          message = "The Etsy draft could not be created.";
+        }
+        if (data.checkDraftsFirst && !message.toLowerCase().includes("check etsy")) {
+          message += " Check Etsy drafts before trying again so you do not create a duplicate.";
+        }
+        const publishError = new Error(message);
+        publishError.stage = data.stage || "server";
+        throw publishError;
       }
       setDraftResult(data);
       completeListingWorkflow(workflow.id, data);
+      setRecoveryUrl("");
       setNotice(`Draft ${data.listingId} was created in ${data.shopName || "your Etsy shop"} with ${data.uploadedImages} photos.`);
     } catch (publishError) {
-      setError(publishError.message || "The Etsy draft could not be created.");
+      const networkFailure = publishError instanceof TypeError;
+      if (networkFailure) setRecoveryUrl(ETSY_DRAFTS_URL);
+      setError(
+        networkFailure
+          ? "The connection ended before Mocksy received Etsy’s answer. Check Etsy drafts before trying again so you do not create a duplicate."
+          : publishError.message || "The Etsy draft could not be created.",
+      );
     } finally {
       setPublishing(false);
+      setPublishingStage("");
     }
   }
 
@@ -327,7 +387,15 @@ export default function ListingReviewPage() {
             </div>
           )}
 
-          {error && <div className="message-bar is-error" role="alert"><span>{error}</span><button type="button" onClick={() => setError("")} aria-label="Dismiss error"><X size={16} /></button></div>}
+          {error && (
+            <div className="message-bar is-error" role="alert">
+              <span>
+                {error}
+                {recoveryUrl && <> <a href={recoveryUrl} target="_blank" rel="noreferrer">Check Etsy drafts <ExternalLink size={13} /></a></>}
+              </span>
+              <button type="button" onClick={() => { setError(""); setRecoveryUrl(""); }} aria-label="Dismiss error"><X size={16} /></button>
+            </div>
+          )}
           {notice && <div className="message-bar is-notice" role="status"><span>{notice}</span><button type="button" onClick={() => setNotice("")} aria-label="Dismiss notice"><X size={16} /></button></div>}
 
           {draftResult ? (
@@ -336,7 +404,11 @@ export default function ListingReviewPage() {
               <div>
                 <div className="eyebrow"><span /> ETSY DRAFT {draftResult.listingId}</div>
                 <h2>{draftResult.partial ? "The draft exists, but needs image attention." : "Your Etsy draft is ready."}</h2>
-                <p>{draftResult.partial ? error : `${draftResult.uploadedImages} selected photos and your reviewed listing copy are waiting in Etsy Shop Manager.`}</p>
+                <p>
+                  {draftResult.partial
+                    ? draftResult.message || draftResult.error || "The Etsy draft exists, but one or more photos still need to be added in Etsy."
+                    : `${draftResult.uploadedImages} selected photos and your reviewed listing copy are waiting in Etsy Shop Manager.`}
+                </p>
                 <div>
                   <a className="generate-button" href={draftResult.manageUrl} target="_blank" rel="noreferrer">Open Etsy drafts <ExternalLink size={16} /></a>
                   <button className="outline-button" type="button" onClick={startNewListing}><RotateCcw size={15} /> Start a new listing</button>
@@ -435,7 +507,12 @@ export default function ListingReviewPage() {
               <section className="listing-publish-bar">
                 <div>
                   <span><Store size={18} /></span>
-                  <div><strong>{etsyStatus?.connected ? `Save to ${etsyStatus.shopName}` : "Connect Etsy to create the draft"}</strong><small>Creates an inactive Etsy draft with {selectedImages.length} photos. It does not publish or activate the listing.</small></div>
+                  <div>
+                    <strong>{etsyStatus?.connected ? `Save to ${etsyStatus.shopName}` : "Connect Etsy to create the draft"}</strong>
+                    <small role={publishing ? "status" : undefined}>
+                      {publishingStage || `Creates an inactive Etsy draft with ${selectedImages.length} photos. It does not publish or activate the listing.`}
+                    </small>
+                  </div>
                 </div>
                 {etsyStatus?.connected ? (
                   <button className="generate-button" type="button" onClick={createDraft} disabled={!canPublish}>
