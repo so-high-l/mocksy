@@ -16,6 +16,7 @@ import {
 
 export const runtime = "nodejs";
 export const maxDuration = 180;
+const MAX_ETSY_UPLOAD_BYTES = 200 * 1024 * 1024;
 
 function safeFilename(value, index) {
   const base = String(value || `mocksy-listing-image-${index + 1}`)
@@ -26,17 +27,20 @@ function safeFilename(value, index) {
   return `${base}.jpg`;
 }
 
-async function jpegListingImage(file, index) {
+function validateListingImage(file, index) {
   if (!ETSY_LISTING_IMAGE_TYPES.has(file.type)) {
     throw new Error(`${file.name || `Image ${index + 1}`} is not a supported JPG, PNG, or WebP image.`);
   }
   if (file.size > MAX_ETSY_IMAGE_BYTES) {
     throw new Error(`${file.name || `Image ${index + 1}`} is larger than 20 MB.`);
   }
+}
 
+async function jpegListingImage(file, index) {
+  validateListingImage(file, index);
   const sharp = (await import("sharp")).default;
   const input = Buffer.from(await file.arrayBuffer());
-  const output = await sharp(input)
+  const output = await sharp(input, { failOn: "error", limitInputPixels: 100_000_000 })
     .rotate()
     .flatten({ background: "#ffffff" })
     .jpeg({ quality: 92, mozjpeg: true })
@@ -66,6 +70,14 @@ export async function POST(request) {
       return NextResponse.json(
         { error: `Choose no more than ${MAX_ETSY_LISTING_IMAGES} listing images.` },
         { status: 400 },
+      );
+    }
+    images.forEach(validateListingImage);
+    const totalImageBytes = images.reduce((total, image) => total + image.size, 0);
+    if (totalImageBytes > MAX_ETSY_UPLOAD_BYTES) {
+      return NextResponse.json(
+        { error: "The selected listing images exceed Mocksy’s 200 MB upload limit. Choose fewer or smaller images." },
+        { status: 413 },
       );
     }
 

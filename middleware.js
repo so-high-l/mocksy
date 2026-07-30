@@ -1,10 +1,12 @@
 import { NextResponse } from "next/server";
 import { isAuthConfigured, SESSION_COOKIE, verifySessionToken } from "./lib/auth";
+import { getPublicUrl } from "./lib/public-url";
 
 const PUBLIC_PATHS = new Set(["/login", "/api/auth/login", "/api/etsy/callback"]);
 
 export async function middleware(request) {
   const { pathname, search } = request.nextUrl;
+  const configuredPublicUrl = process.env.ETSY_REDIRECT_URI || "";
   if (PUBLIC_PATHS.has(pathname)) return NextResponse.next();
 
   if (!isAuthConfigured()) {
@@ -14,7 +16,7 @@ export async function middleware(request) {
         { status: 503 },
       );
     }
-    const loginUrl = new URL("/login?configuration=missing", request.url);
+    const loginUrl = getPublicUrl(request, "/login?configuration=missing", configuredPublicUrl);
     return NextResponse.redirect(loginUrl);
   }
 
@@ -25,7 +27,7 @@ export async function middleware(request) {
     return NextResponse.json({ error: "Your session has expired. Sign in again." }, { status: 401 });
   }
 
-  const loginUrl = new URL("/login", request.url);
+  const loginUrl = getPublicUrl(request, "/login", configuredPublicUrl);
   const returnTo = `${pathname}${search}`;
   if (returnTo !== "/") loginUrl.searchParams.set("returnTo", returnTo);
   return NextResponse.redirect(loginUrl);

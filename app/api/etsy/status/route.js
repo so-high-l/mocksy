@@ -39,7 +39,9 @@ export async function GET(request) {
       connected: false,
       error: error instanceof Error ? error.message : "Reconnect Etsy from Settings.",
     });
-    response.cookies.set(ETSY_SESSION_COOKIE, "", { ...etsyCookieOptions(0), maxAge: 0 });
+    if ([400, 401, 403].includes(Number(error?.status))) {
+      response.cookies.set(ETSY_SESSION_COOKIE, "", { ...etsyCookieOptions(0), maxAge: 0 });
+    }
     return response;
   }
 }

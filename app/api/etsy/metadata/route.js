@@ -9,8 +9,10 @@ import {
 export const dynamic = "force-dynamic";
 
 export async function GET(request) {
+  let sessionResult;
   try {
-    const { session, cookieValue } = await readEtsySession(request);
+    sessionResult = await readEtsySession(request);
+    const { session, cookieValue } = sessionResult;
     if (!session) return NextResponse.json({ error: "Connect Etsy before loading listing details." }, { status: 401 });
 
     const [sectionsPayload, categories] = await Promise.all([
@@ -41,9 +43,10 @@ export async function GET(request) {
     });
     return applyRefreshedEtsyCookie(response, cookieValue);
   } catch (error) {
-    return NextResponse.json(
+    const response = NextResponse.json(
       { error: error instanceof Error ? error.message : "Etsy listing details could not be loaded." },
       { status: error?.status || 502 },
     );
+    return applyRefreshedEtsyCookie(response, sessionResult?.cookieValue || "");
   }
 }

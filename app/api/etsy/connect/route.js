@@ -6,6 +6,7 @@ import {
   ETSY_OAUTH_SCOPES,
   etsyCookieOptions,
   getEtsyCredentials,
+  getEtsyPublicOrigin,
   getEtsyRedirectConfiguration,
 } from "../../../../lib/etsy";
 
@@ -16,7 +17,7 @@ function base64Url(buffer) {
 }
 
 function settingsError(request, message) {
-  const url = new URL("/settings", request.nextUrl.origin);
+  const url = new URL("/settings", getEtsyPublicOrigin(request));
   url.searchParams.set("etsy_error", message);
   url.hash = "etsy";
   return NextResponse.redirect(url);

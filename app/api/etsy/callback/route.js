@@ -2,16 +2,20 @@ import { NextResponse } from "next/server";
 import { decryptSecurePayload, encryptSecurePayload } from "../../../../lib/api-keys";
 import {
   ETSY_OAUTH_COOKIE,
+  ETSY_OAUTH_SCOPES,
   ETSY_SESSION_COOKIE,
+  EtsyApiError,
   etsyCookieOptions,
   exchangeEtsyToken,
+  getEtsyPublicOrigin,
+  missingEtsyScopes,
   requestEtsy,
 } from "../../../../lib/etsy";
 
 export const runtime = "nodejs";
 
 function settingsRedirect(request, parameter, value) {
-  const url = new URL("/settings", request.nextUrl.origin);
+  const url = new URL("/settings", getEtsyPublicOrigin(request));
   url.searchParams.set(parameter, value);
   url.hash = "etsy";
   return url;
@@ -47,10 +51,26 @@ export async function GET(request) {
       code,
       code_verifier: flow.verifier,
     });
-    const userId = Number(String(token.access_token || "").split(".", 1)[0]);
-    if (!userId) throw new Error("Etsy authorized the app but did not return a shop owner ID.");
+    if (!token.refresh_token) {
+      throw new EtsyApiError("Etsy did not return a refresh token. Revoke Mocksy in Etsy and connect it again.", 502);
+    }
+    const missingScopes = token.scope ? missingEtsyScopes(token.scope) : [];
+    if (missingScopes.length) {
+      throw new EtsyApiError(
+        `Etsy did not grant the required permissions: ${missingScopes.join(", ")}. Reconnect and approve all requested access.`,
+        403,
+      );
+    }
+    const userIdMatch = token.access_token.match(/^(\d+)\./);
+    const userId = Number(userIdMatch?.[1]);
+    if (!Number.isSafeInteger(userId) || userId <= 0) {
+      throw new EtsyApiError("Etsy authorized the app but returned an invalid shop owner ID.", 502);
+    }
 
-    const shopPayload = await requestEtsy(`/application/users/${userId}/shops`);
+    const shopPayload = await requestEtsy(
+      `/application/users/${userId}/shops`,
+      { accessToken: token.access_token },
+    );
     const shop = Array.isArray(shopPayload?.results) ? shopPayload.results[0] : shopPayload;
     if (!shop?.shop_id) throw new Error("No Etsy shop was found for this account.");
 
@@ -58,7 +78,7 @@ export async function GET(request) {
       accessToken: token.access_token,
       refreshToken: token.refresh_token,
       expiresAt: Date.now() + Number(token.expires_in || 3600) * 1000,
-      scope: token.scope || "",
+      scope: token.scope || ETSY_OAUTH_SCOPES,
       userId,
       shopId: Number(shop.shop_id),
       shopName: String(shop.shop_name || "Etsy shop"),
