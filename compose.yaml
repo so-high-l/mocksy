@@ -1,0 +1,21 @@
+name: mocksy
+
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    init: true
+    restart: unless-stopped
+    ports:
+      - "${MOCKSY_PORT:-3000}:3000"
+    environment:
+      APP_PASSWORD: "${APP_PASSWORD:?APP_PASSWORD is required}"
+      SESSION_SECRET: "${SESSION_SECRET:?SESSION_SECRET is required}"
+      GEMINI_API_KEY: "${GEMINI_API_KEY:-}"
+      BFL_API_KEY: "${BFL_API_KEY:-}"
+      OPENAI_API_KEY: "${OPENAI_API_KEY:-}"
+      ETSY_API_KEY: "${ETSY_API_KEY:-}"
+      ETSY_SHARED_SECRET: "${ETSY_SHARED_SECRET:-}"
+      ETSY_REDIRECT_URI: "${ETSY_REDIRECT_URI:-}"
+      ETSY_TAXONOMY_ID: "${ETSY_TAXONOMY_ID:-}"
