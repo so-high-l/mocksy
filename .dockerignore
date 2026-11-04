@@ -8,3 +8,9 @@ npm-debug.log*
 .env
 .env.*
 !.env.example
+sources
+*.pem
+*.key
+*.p12
+*.pfx
+.vercel

@@ -2,6 +2,10 @@
 
 A private Etsy mockup generator that places uploaded artwork into product scenes with Nano Banana or FLUX.2 Klein, with GPT-4o mini choosing one consistent frame for each batch. Nano Banana generations use Google's asynchronous Batch API for 50% lower model pricing.
 
+## Interface
+
+![Mocksy interface showing uploaded artwork and scene prompt selection](docs/images/mocksy-interface.png)
+
 ## Run locally
 
 1. Install dependencies with `npm install`.
@@ -46,6 +50,13 @@ The container runs as a non-root user and reports its health through Docker. To 
 The final workflow review creates an inactive Etsy draft and uploads the selected listing photos in their chosen order. It never activates or publishes a listing. Digital product files can be attached later in Etsy before the draft is published.
 
 Production access fails closed when `APP_PASSWORD` or `SESSION_SECRET` is missing. Model keys may alternatively be saved from the protected settings page; they are encrypted into an HTTP-only cookie for that browser.
+
+## Security and public repositories
+
+- Keep real credentials in ignored `.env` files or your deployment's secret settings. `.env.example` contains placeholders only; replace them before running a deployed instance.
+- Use a unique, randomly generated `APP_PASSWORD` and a random `SESSION_SECRET` of at least 32 characters. Serve deployed instances over HTTPS and apply login rate limiting at your reverse proxy or hosting provider; the application has no built-in login rate limiter.
+- `.env` variants, private key files, local Vercel settings, and the synced `sources/` reference folder are excluded from Git. These ignore rules do not remove files already committed to Git history.
+- Run `npm audit --omit=dev` when updating dependencies. Commit both `package.json` and `package-lock.json`, and use `npm ci` for reproducible installs.
 
 ## Notes
 

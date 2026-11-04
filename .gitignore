@@ -1,7 +1,20 @@
 node_modules
 .next
 .env
-.env.local
+.env.*
+!.env.example
+**/.env
+**/.env.*
+!**/.env.example
+*.pem
+*.key
+*.p12
+*.pfx
+.vercel/
+# Synced ChatGPT project references are private local material.
+/sources/
+coverage/
+*.tsbuildinfo
 npm-debug.log*
 .DS_Store
 
