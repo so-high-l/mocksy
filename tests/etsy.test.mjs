@@ -58,15 +58,16 @@ test("Etsy callback configuration requires the exact HTTPS callback path", { con
   assert.match(getEtsyRedirectConfiguration(request()).error, /query string/);
 });
 
-test("public redirects prefer the configured app and Etsy origins over the container host", { concurrency: false }, () => {
+test("public redirects use the configured app origin and ignore request host headers", { concurrency: false }, () => {
   process.env.ETSY_REDIRECT_URI = "https://mocksy.example.com/api/etsy/callback";
   assert.equal(getEtsyPublicOrigin(request()), "https://mocksy.example.com");
+  delete process.env.ETSY_REDIRECT_URI;
   assert.equal(
     getPublicOrigin(request("http://0.0.0.0:3000", {
       "x-forwarded-host": "proxy.example.com",
       "x-forwarded-proto": "https",
     })),
-    "https://proxy.example.com",
+    "http://localhost:3000",
   );
 });
 
